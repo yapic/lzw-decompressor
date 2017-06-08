@@ -1,6 +1,6 @@
 # distutils: language=c++
-# cython: profile=True
-# cython: linetrace=True
+# cython: profile=False
+# cython: linetrace=False
 
 cimport cython
 
@@ -12,13 +12,13 @@ ctypedef unsigned char uchar
 ctypedef vector[uchar] bytestring
 
 cdef class BitReader:
-    cdef bytes buf
+    cdef bytestring buf
     cdef unsigned int curr_byte
     cdef unsigned char read_bits
-    cdef Py_ssize_t pos
+    cdef size_t pos
     cdef bytestring mask
 
-    def __cinit__(self, bytes buf):
+    def __cinit__(self, bytestring buf):
         self.pos = 0
         self.curr_byte = 0
         self.read_bits = 0
@@ -28,32 +28,20 @@ cdef class BitReader:
 
     @cython.boundscheck(False) # turn off bounds-checking for entire function
     @cython.wraparound(False)  # turn off negative index wrapping for entire function
-    cpdef int readbits(self, int n):
-        cdef int bits_left = n - self.read_bits
+    cpdef unsigned int readbits(self, unsigned int n):
+        cdef unsigned int bits_left = n - self.read_bits
 
         if bits_left > 8:
-            if self.pos == len(self.buf):
-                print('force EOI')
-                return EOI
             self.curr_byte = ((self.curr_byte << 8) | (self.buf[self.pos] & 0xff))
             self.pos += 1
             bits_left -= 8
 
         self.read_bits = 8 - bits_left
-        if self.pos == len(self.buf):
-            print('force EOI')
-            return EOI
-        if self.pos > 64*1024-2:
-            print('force EOI')
-            return EOI
         cdef unsigned int next_byte = self.buf[self.pos] & 0xff
         self.pos += 1
 
-#        print next_byte, self.read_bits
-#        print 'a', (self.curr_byte << bits_left), 'b', (next_byte >> self.read_bits)
-        cdef int value = (int (self.curr_byte << bits_left)) | (next_byte >> self.read_bits)
+        cdef unsigned int value = ((self.curr_byte << bits_left)) | (next_byte >> self.read_bits)
         self.curr_byte = next_byte & self.mask[self.read_bits]
-#        print value, n
         return value
 
 
@@ -98,16 +86,16 @@ cdef vector[bytestring] tiff_table():
 
 def tiff_lzw_decompress(bytes buf):
     cdef vector[bytestring] table = tiff_table()
-    cdef int a = tiff_code_len[0]
-    cdef int b = tiff_code_len[1]
+    cdef unsigned int a = tiff_code_len[0]
+    cdef unsigned int b = tiff_code_len[1]
     x = lzw_decompress(table, a, b, buf)
-    return x
+    return bytes(x)
 
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-cdef bytes lzw_decompress(vector[bytestring] init_table, int min_code_len, int max_code_len, bytes buf):
-    cdef int code_len = min_code_len
+cdef bytestring lzw_decompress(vector[bytestring] init_table, unsigned int min_code_len, unsigned int max_code_len, bytestring buf):
+    cdef unsigned int code_len = min_code_len
 
     cdef vector[bytestring] table
     table = clone2(init_table)
@@ -116,10 +104,11 @@ cdef bytes lzw_decompress(vector[bytestring] init_table, int min_code_len, int m
     
     cdef unsigned int code = 0
     cdef unsigned int old_code = 0
-    cdef bytes value = b''
-    cdef bytes old_value = b''
-    cdef bytes string = b''
-    cdef bytes output = b''
+    cdef bytestring value = b''
+    cdef bytestring old_value = b''
+    cdef bytestring string = b''
+    cdef bytestring output = b''
+    output.reserve(1024*1024)
 
     while True:
         code = reader.readbits(code_len)
@@ -127,7 +116,6 @@ cdef bytes lzw_decompress(vector[bytestring] init_table, int min_code_len, int m
         if code == EOI:
             break
         elif code == CLEAR:
-            print('CLEAR', len(buf))
             table.clear()
             table = clone2(init_table)
             code_len = min_code_len
@@ -136,19 +124,25 @@ cdef bytes lzw_decompress(vector[bytestring] init_table, int min_code_len, int m
             if code == EOI:
                 break
 
-            output += bytes(table[code])
+            for v in table[code]:
+                output.push_back(v)
         else:
             if code < table.size():
                 #print 1, old_code, code, code_len#, 'c'
-                value = bytes(table[code])
-                output += value[:]
+                value = table[code]
+                for v in value:
+                    output.push_back(v)
                 assert old_code < table.size()
-                table.push_back(bytes(table[old_code]) + value[:1])
+                string = bytestring(table[old_code])
+                string.push_back(value[0])
+                table.push_back(string)
             else:
                 #print 2, old_code, code, code_len#, 'c'
-                old_value = bytes(table[old_code])
-                string = old_value[:] + old_value[:1]
-                output += string
+                old_value = table[old_code]
+                string = bytestring(old_value)
+                string.push_back(old_value[0])
+                for v in string:
+                    output.push_back(v)
                 table.push_back(string)
 
         old_code = code
@@ -159,6 +153,5 @@ cdef bytes lzw_decompress(vector[bytestring] init_table, int min_code_len, int m
         elif table.size() == 2047:
             code_len = 12
 
-    print('done')
     return output
 

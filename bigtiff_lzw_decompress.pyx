@@ -88,13 +88,13 @@ def tiff_lzw_decompress(bytes buf):
     cdef vector[bytestring] table = tiff_table()
     cdef unsigned int a = tiff_code_len[0]
     cdef unsigned int b = tiff_code_len[1]
-    x = lzw_decompress(table, a, b, buf)
+    x = bigtiff_lzw_decompress(table, a, b, buf)
     return bytes(x)
 
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-cdef bytestring lzw_decompress(vector[bytestring] init_table, unsigned int min_code_len, unsigned int max_code_len, bytestring buf):
+cdef bytestring bigtiff_lzw_decompress(vector[bytestring] init_table, unsigned int min_code_len, unsigned int max_code_len, bytestring buf):
     cdef unsigned int code_len = min_code_len
 
     cdef vector[bytestring] table

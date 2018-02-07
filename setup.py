@@ -4,6 +4,9 @@ from Cython.Build import cythonize
 
 setup(
   name='bigtiff_lzw_decompress',
+  install_requires=[
+        'Cython',
+  ],
   ext_modules = cythonize([
       Extension(
         'bigtiff_lzw_decompress',
